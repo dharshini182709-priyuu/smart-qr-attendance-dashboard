@@ -1,0 +1,351 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart QR Attendance Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+* { box-sizing: border-box; }
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #f3f6fb;
+    color: #1f2937;
+}
+header {
+    background: #203b88;
+    color: white;
+    padding: 24px 4%;
+}
+header h1 { margin: 0 0 8px; }
+.container { width: 94%; max-width: 1450px; margin: 24px auto; }
+.panel, .card {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 15px #0000000b;
+}
+.panel { margin-bottom: 22px; min-width: 0; }
+.panel h2 { font-size: 19px; margin: 0 0 18px; }
+.actions {
+    display: flex; justify-content: flex-end;
+    gap: 10px; flex-wrap: wrap; margin-bottom: 20px;
+}
+.btn {
+    border: 0; border-radius: 7px; padding: 11px 15px;
+    text-decoration: none; font-weight: bold; cursor: pointer;
+}
+.blue { background: #203b88; color: white; }
+.green { background: #16803d; color: white; }
+.gray { background: #6b7280; color: white; }
+.cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+    gap: 15px; margin-bottom: 22px;
+}
+.label { color: #6b7280; font-size: 14px; margin-bottom: 10px; }
+.value { color: #203b88; font-size: 28px; font-weight: bold; }
+.filters { display: flex; flex-wrap: wrap; gap: 10px; }
+.filters input {
+    flex: 1; min-width: 150px; padding: 11px;
+    border: 1px solid #cbd5e1; border-radius: 7px;
+}
+.charts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+}
+.chart-area { height: 300px; position: relative; }
+.student-area { height: 350px; position: relative; }
+.table-wrap { width: 100%; overflow-x: auto; }
+table { width: 100%; min-width: 700px; border-collapse: collapse; }
+th, td {
+    padding: 13px 12px; text-align: left;
+    border-bottom: 1px solid #e5e7eb;
+}
+th { background: #203b88; color: white; white-space: nowrap; }
+tbody tr:hover { background: #f8fafc; }
+.good { color: #15803d; font-weight: bold; }
+.low { color: #dc2626; font-weight: bold; }
+.empty { padding: 25px; text-align: center; color: #6b7280; }
+footer { text-align: center; padding: 20px; color: #6b7280; }
+
+@media(max-width: 800px) {
+    .charts { grid-template-columns: 1fr; }
+}
+@media(max-width: 550px) {
+    .container { width: 96%; }
+    .panel, .card { padding: 14px; }
+    .filters input, .filters button, .filters a { width: 100%; }
+    .chart-area { height: 270px; }
+}
+</style>
+</head>
+
+<body>
+<header>
+    <h1>Smart QR Attendance Dashboard</h1>
+    <p>Data Visualization &amp; Attendance Analytics</p>
+</header>
+
+<main class="container">
+
+    <div class="actions">
+        <button class="btn blue" onclick="location.reload()">Refresh Dashboard</button>
+        <a class="btn green" href="/download">Download CSV</a>
+    </div>
+
+    <section class="cards">
+        <div class="card">
+            <div class="label">Total Students</div>
+            <div class="value">{{ total_students }}</div>
+        </div>
+        <div class="card">
+            <div class="label">Attendance Records</div>
+            <div class="value">{{ total_records }}</div>
+        </div>
+        <div class="card">
+            <div class="label">Attendance Days</div>
+            <div class="value">{{ total_days }}</div>
+        </div>
+        <div class="card">
+            <div class="label">Average Attendance</div>
+            <div class="value">{{ average_attendance }}%</div>
+        </div>
+        <div class="card">
+            <div class="label">Below 75%</div>
+            <div class="value">{{ below_75 }}</div>
+        </div>
+    </section>
+
+    <section class="panel">
+        <h2>Attendance Filters</h2>
+        <form class="filters" method="GET" action="/">
+            <input
+                type="text"
+                name="search"
+                placeholder="Search name / register number"
+                value="{{ search | e }}"
+            >
+            <input
+                type="date"
+                name="date"
+                aria-label="Filter by date"
+                value="{{ selected_date | e }}"
+            >
+            <input
+                type="month"
+                name="month"
+                aria-label="Filter by month"
+                value="{{ selected_month | e }}"
+            >
+            <button class="btn blue" type="submit">Apply Filter</button>
+            <a class="btn gray" href="/">Clear</a>
+        </form>
+    </section>
+
+    <section class="charts">
+        <div class="panel">
+            <h2>Daily Attendance Trend</h2>
+            <div class="chart-area">
+                <canvas id="dailyChart"></canvas>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>Monthly Attendance</h2>
+            <div class="chart-area">
+                <canvas id="monthlyChart"></canvas>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>Student Attendance Percentage</h2>
+            <div class="student-area" id="studentChartArea">
+                <canvas id="studentChart"></canvas>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>Attendance Overview</h2>
+            <div class="chart-area">
+                <canvas id="overviewChart"></canvas>
+            </div>
+        </div>
+    </section>
+
+    <section class="panel">
+        <h2>Student Attendance Details</h2>
+
+        {% if students %}
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Register No.</th>
+                        <th>Student Name</th>
+                        <th>Attendance Count</th>
+                        <th>Attendance %</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for student in students %}
+                    <tr>
+                        <td>{{ student.get('student_id', '') }}</td>
+                        <td>{{ student.get('name', '') }}</td>
+                        <td>{{ student.get('count', 0) }}</td>
+                        <td>{{ student.get('percentage', 0) }}%</td>
+                        <td>
+                            {% if student.get('percentage', 0)|float >= 75 %}
+                                <span class="good">75% and Above</span>
+                            {% else %}
+                                <span class="low">Below 75%</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty">No student records found.</div>
+        {% endif %}
+    </section>
+</main>
+
+<footer>Smart QR Attendance System | Data Visualization Dashboard</footer>
+<script id="daily-data" type="application/json">{{ daily_data | tojson }}</script>
+<script id="monthly-data" type="application/json">{{ monthly_data | tojson }}</script>
+<script id="student-data" type="application/json">{{ student_data | tojson }}</script>
+<script>
+/* Jinja's tojson outputs valid JavaScript data. Do not wrap it in JSON.parse. */
+const dailyData = JSON.parse(
+    document.getElementById("daily-data").textContent
+);
+
+const monthlyData = JSON.parse(
+    document.getElementById("monthly-data").textContent
+);
+
+const studentData = JSON.parse(
+    document.getElementById("student-data").textContent
+);
+const commonOptions = {
+    responsive: true,
+    maintainAspectRatio: false
+};
+
+// Daily attendance chart
+new Chart(document.getElementById("dailyChart"), {
+    type: "line",
+    data: {
+        labels: dailyData.map(item => item.label),
+        datasets: [{
+            label: "Attendance Records",
+            data: dailyData.map(item => item.count),
+            borderWidth: 3,
+            tension: 0.25
+        }]
+    },
+    options: {
+        ...commonOptions,
+        scales: {
+            x: {
+                title: { display: true, text: "Date" },
+                ticks: { autoSkip: true, maxRotation: 45, minRotation: 30 }
+            },
+            y: {
+                beginAtZero: true,
+                title: { display: true, text: "Number of Records" },
+                ticks: { precision: 0 }
+            }
+        }
+    }
+});
+
+// Monthly attendance chart
+new Chart(document.getElementById("monthlyChart"), {
+    type: "bar",
+    data: {
+        labels: monthlyData.map(item => item.label),
+        datasets: [{
+            label: "Attendance Records",
+            data: monthlyData.map(item => item.count),
+            borderWidth: 1
+        }]
+    },
+    options: {
+        ...commonOptions,
+        scales: {
+            x: {
+                title: { display: true, text: "Month" },
+                ticks: { autoSkip: false, maxRotation: 45, minRotation: 0 }
+            },
+            y: {
+                beginAtZero: true,
+                title: { display: true, text: "Number of Records" },
+                ticks: { precision: 0 }
+            }
+        }
+    }
+});
+
+// Student chart - display all students, not just the first ten
+const chartStudents = [...studentData].sort(
+    (a, b) => Number(b.percentage || 0) - Number(a.percentage || 0)
+);
+
+document.getElementById("studentChartArea").style.height =
+    Math.max(350, chartStudents.length * 30) + "px";
+
+new Chart(document.getElementById("studentChart"), {
+    type: "bar",
+    data: {
+        labels: chartStudents.map(item => item.name),
+        datasets: [{
+            label: "Attendance %",
+            data: chartStudents.map(item => Number(item.percentage || 0)),
+            borderWidth: 1
+        }]
+    },
+    options: {
+        ...commonOptions,
+        indexAxis: "y",
+        scales: {
+            x: {
+                beginAtZero: true,
+                max: 100,
+                title: { display: true, text: "Attendance Percentage" }
+            },
+            y: {
+                ticks: { autoSkip: false }
+            }
+        }
+    }
+});
+
+// Overview chart
+const above75 = studentData.filter(
+    item => Number(item.percentage || 0) >= 75
+).length;
+
+const below75 = studentData.length - above75;
+
+new Chart(document.getElementById("overviewChart"), {
+    type: "doughnut",
+    data: {
+        labels: ["75% and Above", "Below 75%"],
+        datasets: [{
+            data: [above75, below75],
+            borderWidth: 1
+        }]
+    },
+    options: commonOptions
+});
+</script>
+</body>
+</html>
